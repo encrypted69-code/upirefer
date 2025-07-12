@@ -1,12 +1,12 @@
-from dotenv import load_dotenv
-load_dotenv()
-
-
 import os
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
-from pymongo import MongoClient
 from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
+from pymongo import MongoClient
 from payments import request_withdrawal
 from utils import admin_only, get_or_create_user, process_referral, leaderboard_message
 
@@ -22,92 +22,92 @@ db = client["refer_earn_bot"]
 users = db["users"]
 withdrawals = db["withdrawals"]
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     args = context.args
     referral_code = args[0] if args else None
     get_or_create_user(users, user_id)
     process_referral(users, user_id, referral_code)
-    update.message.reply_text(
+    await update.message.reply_text(
         f"Welcome! Your referral link:\nhttps://t.me/{BOT_USERNAME}?start={user_id}"
     )
 
-def refer(update: Update, context: CallbackContext):
+async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    update.message.reply_text(
+    await update.message.reply_text(
         f"Your referral link:\nhttps://t.me/{BOT_USERNAME}?start={user_id}"
     )
 
-def balance(update: Update, context: CallbackContext):
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_or_create_user(users, user_id)
-    update.message.reply_text(f"Your balance: ₹{user['balance']}")
+    await update.message.reply_text(f"Your balance: ₹{user['balance']}")
 
-def set_upi(update: Update, context: CallbackContext):
+async def set_upi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     args = context.args
     if not args:
-        update.message.reply_text("Usage: /upi your_upi_id@bank")
+        await update.message.reply_text("Usage: /upi your_upi_id@bank")
         return
     upi_id = args[0]
     users.update_one({"user_id": user_id}, {"$set": {"upi_id": upi_id}})
-    update.message.reply_text(f"UPI ID set to: {upi_id}")
+    await update.message.reply_text(f"UPI ID set to: {upi_id}")
 
-def withdraw(update: Update, context: CallbackContext):
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_or_create_user(users, user_id)
     if user["balance"] < MIN_WITHDRAW:
-        update.message.reply_text(f"Minimum withdrawal is ₹{MIN_WITHDRAW}.")
+        await update.message.reply_text(f"Minimum withdrawal is ₹{MIN_WITHDRAW}.")
         return
     if not user.get("upi_id"):
-        update.message.reply_text("Set your UPI ID first using /upi command.")
+        await update.message.reply_text("Set your UPI ID first using /upi command.")
         return
     request_withdrawal(users, withdrawals, user_id, user["balance"], user["upi_id"])
     users.update_one({"user_id": user_id}, {"$set": {"balance": 0}})
-    update.message.reply_text(f"Withdrawal request of ₹{user['balance']} submitted for {user['upi_id']}. Await admin approval.")
+    await update.message.reply_text(f"Withdrawal request of ₹{user['balance']} submitted for {user['upi_id']}. Await admin approval.")
 
-def info(update: Update, context: CallbackContext):
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_or_create_user(users, user_id)
     referred = user.get("referrals", [])
-    update.message.reply_text(
+    await update.message.reply_text(
         f"Your balance: ₹{user['balance']}\n"
         f"Your UPI ID: {user.get('upi_id','Not set')}\n"
         f"Referred users: {len(referred)}"
     )
 
-def leaderboard(update: Update, context: CallbackContext):
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = leaderboard_message(users)
-    update.message.reply_text(msg)
+    await update.message.reply_text(msg)
 
 @admin_only
-def admin_stats(update: Update, context: CallbackContext):
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_users = users.count_documents({})
     total_balance = sum(u['balance'] for u in users.find())
     pending_withdrawals = withdrawals.count_documents({"status": "pending"})
-    update.message.reply_text(
+    await update.message.reply_text(
         f"Total users: {total_users}\n"
         f"Total balance in system: ₹{total_balance}\n"
         f"Pending withdrawals: {pending_withdrawals}"
     )
 
 @admin_only
-def approve_withdrawal(update: Update, context: CallbackContext):
+async def approve_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) < 1:
-        update.message.reply_text("Usage: /approve_withdrawal withdrawal_id")
+        await update.message.reply_text("Usage: /approve_withdrawal withdrawal_id")
         return
     withdrawal_id = args[0]
     withdrawal = withdrawals.find_one({"_id": withdrawal_id, "status": "pending"})
     if not withdrawal:
-        update.message.reply_text("No such pending withdrawal.")
+        await update.message.reply_text("No such pending withdrawal.")
         return
     # Integrate with payment gateway API for payout here
     withdrawals.update_one({"_id": withdrawal_id}, {"$set": {"status": "approved"}})
-    update.message.reply_text(f"Withdrawal {withdrawal_id} approved and marked as paid.")
+    await update.message.reply_text(f"Withdrawal {withdrawal_id} approved and marked as paid.")
 
-def help_cmd(update: Update, context: CallbackContext):
-    update.message.reply_text(
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "/start [referral_code] - Start bot\n"
         "/refer - Get your referral link\n"
         "/balance - Check your balance\n"
@@ -119,19 +119,16 @@ def help_cmd(update: Update, context: CallbackContext):
         "Admin commands: /admin_stats, /approve_withdrawal"
     )
 
-updater = Updater(BOT_TOKEN)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("refer", refer))
-dp.add_handler(CommandHandler("balance", balance))
-dp.add_handler(CommandHandler("upi", set_upi))
-dp.add_handler(CommandHandler("withdraw", withdraw))
-dp.add_handler(CommandHandler("info", info))
-dp.add_handler(CommandHandler("leaderboard", leaderboard))
-dp.add_handler(CommandHandler("help", help_cmd))
-dp.add_handler(CommandHandler("admin_stats", admin_stats))
-dp.add_handler(CommandHandler("approve_withdrawal", approve_withdrawal, pass_args=True))
-
-updater.start_polling()
-updater.idle()
-
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("refer", refer))
+    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("upi", set_upi))
+    app.add_handler(CommandHandler("withdraw", withdraw))
+    app.add_handler(CommandHandler("info", info))
+    app.add_handler(CommandHandler("leaderboard", leaderboard))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("admin_stats", admin_stats))
+    app.add_handler(CommandHandler("approve_withdrawal", approve_withdrawal))
+    app.run_polling()
