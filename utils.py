@@ -1,11 +1,19 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-
 import os
 from functools import wraps
 
-ADMIN_IDS = [int(uid) for uid in os.getenv("ADMIN_IDS").split(",")]
+# Debug print to check if ADMIN_IDS is being loaded
+print("ADMIN_IDS from env:", os.getenv("ADMIN_IDS"))
+
+# Safely handle missing or empty ADMIN_IDS
+admin_ids_env = os.getenv("ADMIN_IDS")
+if admin_ids_env:
+    ADMIN_IDS = [int(uid) for uid in admin_ids_env.split(",")]
+else:
+    ADMIN_IDS = []
+    print("Warning: ADMIN_IDS environment variable is missing or empty.")
 
 def admin_only(func):
     @wraps(func)
